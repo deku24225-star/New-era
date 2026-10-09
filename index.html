@@ -1,0 +1,247 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#07111f"><title>JARVIS</title><style>
+:root{color-scheme:dark;--bg:#06101d;--panel:#0c1a2b;--line:#20364d;--text:#e9f3ff;--muted:#9bb0c7;--cyan:#55e6f2}*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 50% -15%,#153c59,transparent 48%),var(--bg);color:var(--text);font:16px/1.5 system-ui}main{max-width:960px;margin:auto;padding:18px 12px}.top{display:flex;justify-content:space-between;align-items:center;gap:10px}.brand{letter-spacing:.18em}.muted{color:var(--muted);font-size:.84rem}.status,.panel{border:1px solid var(--line);background:#0c1a2b;border-radius:16px}.status{padding:5px 10px;font-size:.8rem;color:var(--muted)}.orb{margin:24px auto 8px;width:82px;height:82px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#d2ffff,#41d8ed 20%,#167ca7 52%,#08172a 74%);box-shadow:0 0 32px #28c9e977;animation:pulse 3s infinite}@keyframes pulse{50%{transform:scale(1.05)}}.center{text-align:center}.layout{display:grid;grid-template-columns:1.7fr 1fr;gap:12px;margin-top:20px}.panel{overflow:hidden}.head{padding:12px 14px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:8px}.head h2{font-size:1rem;margin:0}.chatlog{height:330px;overflow:auto;padding:12px;display:flex;flex-direction:column;gap:10px}.msg{max-width:95%;white-space:pre-wrap;overflow-wrap:anywhere;padding:10px 12px;border-radius:12px;background:#102238}.user{align-self:flex-end;background:#123a52}.composer,.inner{padding:12px;display:flex;gap:8px}.composer{border-top:1px solid var(--line)}textarea,input,select{font:inherit;color:var(--text);background:#071321;border:1px solid var(--line);border-radius:10px;padding:10px;min-width:0}textarea{flex:1;resize:vertical}.btn{font:inherit;color:var(--text);background:#102b40;border:1px solid #28516b;border-radius:10px;padding:8px 11px;cursor:pointer}.primary{background:#117c9b}.quick{padding:0 12px 12px;display:flex;gap:8px;flex-wrap:wrap}.side{display:flex;flex-direction:column;gap:12px}.inner{display:block}.row{display:flex;gap:7px}.row input{width:100%}.list{list-style:none;margin:10px 0 0;padding:0;display:grid;gap:6px}.list li{display:flex;justify-content:space-between;gap:8px;background:#071321;border:1px solid var(--line);border-radius:9px;padding:7px}.list span{overflow-wrap:anywhere}.accessbar{display:flex;gap:8px;margin-top:12px}.accessbar input{flex:1;width:100%}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}footer{text-align:center;color:var(--muted);font-size:.8rem;padding:18px}@media(max-width:700px){.layout{grid-template-columns:1fr}.side{display:grid;grid-template-columns:1fr 1fr}.chatlog{height:300px}}@media(max-width:430px){.side{grid-template-columns:1fr}.composer{flex-wrap:wrap}.composer textarea{flex-basis:100%}.accessbar{flex-wrap:wrap}.accessbar input{flex-basis:100%}}
+</style></head><body><main><header class="top"><div><div class="brand">◈ J.A.R.V.I.S.</div><div class="muted">PERSONAL ASSISTANT · BROWSER EDITION</div></div><div id="status" class="status" role="status" aria-live="polite">Locked · enter access code</div></header><div class="accessbar"><label class="sr-only" for="accessCode">JARVIS access code</label><input id="accessCode" type="password" maxlength="256" autocomplete="current-password" placeholder="Access code (set in Cloudflare)" aria-label="JARVIS access code"><button id="unlock" class="btn">Unlock</button><button id="lock" class="btn" hidden>Lock</button></div><div class="center"><div class="orb"></div><div class="muted">Ready when you are</div></div><div class="layout"><section class="panel"><div class="head"><h2>Conversation</h2><select id="provider" aria-label="AI provider"><option value="gemini">Gemini</option><option value="openrouter">OpenRouter</option></select></div><div id="chatlog" class="chatlog" aria-live="polite"><div class="msg">Hello! I'm JARVIS. Ask me something or use web search. API secrets are configured privately in Cloudflare.</div></div><div class="composer"><textarea id="prompt" rows="2" maxlength="2000" placeholder="Ask JARVIS anything…"></textarea><button id="mic" class="btn" title="Voice input">🎙️</button><button id="send" class="btn primary">Send</button></div><div class="quick"><button class="btn" id="search">🔎 Search this query</button><button class="btn" id="time">🕒 Time</button><button class="btn" id="clear">Clear chat</button></div></section><aside class="side"><section class="panel"><div class="head"><h2>Timer</h2></div><div class="inner"><div class="row"><input id="mins" type="number" min="1" max="180" value="5" aria-label="Timer minutes"><button class="btn" id="startTimer">Start</button></div><p id="timerStatus" class="muted">Timer idle</p></div></section><section class="panel"><div class="head"><h2>Tasks</h2></div><div class="inner"><form id="taskForm" class="row"><input id="taskInput" placeholder="Add a task" maxlength="180"><button class="btn">Add</button></form><ul id="tasks" class="list"></ul></div></section><section class="panel"><div class="head"><h2>Notes</h2></div><div class="inner"><form id="noteForm" class="row"><input id="noteInput" placeholder="Write a note" maxlength="500"><button class="btn">Save</button></form><ul id="notes" class="list"></ul></div></section></aside></div><footer>JARVIS starter · Keep API keys out of frontend files and GitHub.</footer></main>
+<script>
+const $ = id => document.getElementById(id);
+const log = $('chatlog');
+let history = [], busy = false, timer = null, end = 0, accessToken = '';
+
+try { accessToken = sessionStorage.getItem('jarvis_access_token') || ''; } catch {}
+
+function msg(role, text, links = []) {
+  const el = document.createElement('div');
+  el.className = 'msg ' + (role === 'user' ? 'user' : '');
+  el.textContent = text;
+  for (const item of links) {
+    try {
+      const url = new URL(item.url);
+      if (!['https:', 'http:'].includes(url.protocol)) continue;
+      const a = document.createElement('a');
+      a.href = url.href;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      a.textContent = '\n↗ ' + item.title;
+      a.style.color = '#55e6f2';
+      el.append(a);
+    } catch {}
+  }
+  log.append(el);
+  log.scrollTop = log.scrollHeight;
+}
+
+async function responseData(response) {
+  try { return await response.json(); }
+  catch { return { error: 'The server returned an invalid response.' }; }
+}
+
+async function apiFetch(url, options = {}, tokenOverride = '') {
+  const token = tokenOverride || accessToken;
+  if (!token) throw new Error('Enter your JARVIS access code and tap Unlock first.');
+  const headers = new Headers(options.headers || {});
+  headers.set('Authorization', 'Bearer ' + token);
+  const response = await fetch(url, { ...options, headers });
+  if (response.status === 401) {
+    accessToken = '';
+    try { sessionStorage.removeItem('jarvis_access_token'); } catch {}
+    setLocked(false);
+    $('status').textContent = 'Access code not accepted';
+  }
+  return response;
+}
+
+function setLocked(locked) {
+  $('accessCode').hidden = locked;
+  $('unlock').hidden = locked;
+  $('lock').hidden = !locked;
+}
+
+async function checkHealth(token = accessToken) {
+  if (!token) {
+    $('status').textContent = 'Locked · enter access code';
+    return false;
+  }
+  try {
+    const response = await apiFetch('/api/health', {}, token);
+    const data = await responseData(response);
+    if (!response.ok) {
+      if (response.status === 401) {
+        accessToken = '';
+        try { sessionStorage.removeItem('jarvis_access_token'); } catch {}
+        setLocked(false);
+        $('status').textContent = 'Access code not accepted';
+      } else {
+        $('status').textContent = data.error || 'Backend setup needed';
+      }
+      return false;
+    }
+    accessToken = token;
+    try { sessionStorage.setItem('jarvis_access_token', token); } catch {}
+    setLocked(true);
+    $('status').textContent = data.configured ? 'Backend ready' : 'Access granted · add AI keys';
+    return true;
+  } catch {
+    $('status').textContent = 'Backend not deployed';
+    return false;
+  }
+}
+
+$('unlock').onclick = async () => {
+  const token = $('accessCode').value.trim();
+  if (!token) { $('status').textContent = 'Enter your access code first'; $('accessCode').focus(); return; }
+  $('unlock').disabled = true;
+  $('status').textContent = 'Checking access…';
+  const ok = await checkHealth(token);
+  if (ok) {
+    $('accessCode').value = '';
+    msg('assistant', 'Access granted. JARVIS is ready. Your access code is kept for this browser tab only.');
+  }
+  $('unlock').disabled = false;
+};
+$('accessCode').onkeydown = event => { if (event.key === 'Enter') $('unlock').click(); };
+$('lock').onclick = () => {
+  accessToken = '';
+  try { sessionStorage.removeItem('jarvis_access_token'); } catch {}
+  setLocked(false);
+  $('status').textContent = 'Locked · enter access code';
+  msg('assistant', 'JARVIS locked. Enter your access code to use AI and search again.');
+};
+
+async function search(query) {
+  const response = await apiFetch('/api/search', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query }),
+  });
+  const data = await responseData(response);
+  if (!response.ok) throw new Error(data.error || 'Search failed');
+  return Array.isArray(data.results) ? data.results : [];
+}
+
+async function ask(input, doSearch = false) {
+  const text = input.trim();
+  if (!text || busy) return;
+  if (!accessToken) { msg('assistant', 'Unlock JARVIS with your access code before sending a message.'); $('accessCode').focus(); return; }
+  busy = true;
+  $('send').disabled = true;
+  const previousHistoryLength = history.length;
+  msg('user', text);
+  history.push({ role: 'user', content: text });
+  $('prompt').value = '';
+  try {
+    let links = [], context = '';
+    if (doSearch) {
+      links = await search(text);
+      context = links.map((item, i) => `[${i + 1}] ${item.title}\n${item.content}\nURL: ${item.url}`).join('\n\n');
+    }
+    const response = await apiFetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: history.slice(-10), provider: $('provider').value, context }),
+    });
+    const data = await responseData(response);
+    if (!response.ok) throw new Error(data.error || 'Request failed');
+    if (typeof data.reply !== 'string' || !data.reply.trim()) throw new Error('AI returned an empty response.');
+    history.push({ role: 'assistant', content: data.reply });
+    msg('assistant', data.reply, links);
+  } catch (error) {
+    history.length = previousHistoryLength;
+    msg('assistant', 'Request failed: ' + (error?.message || 'Please try again.'));
+  } finally {
+    busy = false;
+    $('send').disabled = false;
+    $('prompt').focus();
+  }
+}
+
+$('send').onclick = () => ask($('prompt').value);
+$('prompt').onkeydown = event => {
+  if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); ask($('prompt').value); }
+};
+$('search').onclick = () => {
+  const query = $('prompt').value.trim();
+  if (query) ask(query, true);
+  else { $('prompt').placeholder = 'Type your search query first…'; $('prompt').focus(); }
+};
+$('time').onclick = () => msg('assistant', 'Device time: ' + new Date().toLocaleString());
+$('clear').onclick = () => { history = []; log.replaceChildren(); msg('assistant', 'Chat cleared.'); };
+
+const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+$('mic').onclick = () => {
+  if (!SpeechRecognition) { msg('assistant', 'Voice input is not supported in this browser.'); return; }
+  const recognition = new SpeechRecognition();
+  recognition.lang = 'en-IN';
+  recognition.interimResults = false;
+  recognition.maxAlternatives = 1;
+  recognition.onresult = event => {
+    const transcript = event.results?.[0]?.[0]?.transcript;
+    if (transcript) $('prompt').value = transcript;
+  };
+  recognition.onerror = () => msg('assistant', 'Microphone unavailable. Check browser permission.');
+  try { recognition.start(); }
+  catch { msg('assistant', 'Could not start the microphone. Check browser permission.'); }
+};
+
+function read(key) {
+  try {
+    const value = JSON.parse(localStorage.getItem(key) || '[]');
+    return Array.isArray(value) ? value.filter(item => typeof item === 'string').slice(0, 100) : [];
+  } catch { return []; }
+}
+function save(key, values) {
+  try { localStorage.setItem(key, JSON.stringify(values)); return true; }
+  catch { msg('assistant', 'Browser storage is full or unavailable; changes were not saved.'); return false; }
+}
+function render(listId, key) {
+  const list = $(listId);
+  list.replaceChildren();
+  read(key).forEach((value, index) => {
+    const li = document.createElement('li');
+    const span = document.createElement('span');
+    const button = document.createElement('button');
+    span.textContent = value;
+    button.textContent = '×';
+    button.className = 'btn';
+    button.setAttribute('aria-label', 'Delete item');
+    button.onclick = () => {
+      const values = read(key);
+      values.splice(index, 1);
+      if (save(key, values)) render(listId, key);
+    };
+    li.append(span, button);
+    list.append(li);
+  });
+}
+
+[['taskForm', 'taskInput', 'jarvis_tasks', 'tasks'], ['noteForm', 'noteInput', 'jarvis_notes', 'notes']].forEach(([formId, inputId, key, listId]) => {
+  $(formId).onsubmit = event => {
+    event.preventDefault();
+    const value = $(inputId).value.trim();
+    if (!value) return;
+    const values = read(key);
+    if (values.length >= 100) { msg('assistant', 'Please remove an old item before adding more.'); return; }
+    values.push(value);
+    if (save(key, values)) { $(inputId).value = ''; render(listId, key); }
+  };
+});
+render('tasks', 'jarvis_tasks');
+render('notes', 'jarvis_notes');
+
+$('startTimer').onclick = () => {
+  const minutes = Number($('mins').value);
+  if (!Number.isFinite(minutes) || minutes < 1 || minutes > 180) {
+    $('timerStatus').textContent = 'Choose 1–180 minutes';
+    return;
+  }
+  clearInterval(timer);
+  end = Date.now() + minutes * 60_000;
+  function tick() {
+    const seconds = Math.max(0, Math.ceil((end - Date.now()) / 1000));
+    $('timerStatus').textContent = seconds ? `Remaining: ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}` : 'Timer finished!';
+    if (!seconds) { clearInterval(timer); timer = null; msg('assistant', '⏰ Your timer is finished!'); }
+  }
+  tick();
+  timer = setInterval(tick, 1000);
+};
+
+checkHealth();
+</script></body></html>

@@ -1,0 +1,9 @@
+{
+  "name": "jarvis-browser-assistant",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "node --check functions/api/health.js && node --check functions/api/chat.js && node --check functions/api/search.js",
+    "test": "node tests/smoke.mjs"
+  }
+}
